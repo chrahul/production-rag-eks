@@ -1,4 +1,4 @@
-# production-rag-eks# production-rag-eks
+# production-rag-eks
 
 Production grade RAG platform on AWS EKS with document level access control.
 
@@ -8,7 +8,9 @@ https://github.com/chrahul/aws-wellarchitected-rag
 This repo answers the question that came right after. What has to change before
 that system can serve a real organisation?
 
-Status: in development. See the roadmap below.
+Status: in development. Phase 0 in progress.
+
+Architecture decisions: [docs/adr](docs/adr)
 
 ## The problem
 
@@ -21,7 +23,8 @@ Documents are not all public. Security postmortems, customer architecture
 reviews, internal runbooks. Retrieval has to respect who is asking.
 
 A retrieval bug becomes a security incident. If the wrong chunk reaches the LLM,
-the answer contains data the user was never cleared to see.
+the answer contains data the user was never cleared to see. There is no second
+line of defence. The model will faithfully summarise whatever you hand it.
 
 Documents change. Update a runbook and naive ingestion leaves the old chunks in
 place. Retrieval returns both versions and the model blends them into an answer
@@ -47,7 +50,47 @@ document sensitivity.
 The same question asked by two people in different groups returns different
 answers. The system never reveals that the restricted content exists.
 
+## The authorization decision
+
+This is the part of the build that took the longest to get right, and the part
+most worth reading first.
+
+Filtering has to happen inside the vector search, not after it. Retrieving the
+top four chunks and then discarding the ones a user cannot see fails twice. A
+user with narrow access can have everything discarded and be told no
+information exists when plenty does. And result counts and response times leak
+the existence of restricted material to people who never see its contents.
+
+That much is straightforward. The harder question is how the search knows which
+documents a person may see.
+
+Copy permissions into the vector store and they drift. A document tagged
+department=security stays tagged that way after the team is renamed, after
+people leave, after the org restructures. Fix the drift by syncing continuously
+and you have built a second, gradually wrong identity and access management
+system alongside the one the company already has.
+
+Query the source systems on every request instead, and your query latency is
+the sum of four systems and your availability is the product of their uptime.
+
+The decision is recorded in
+[ADR-001](docs/adr/001-vector-store-is-not-an-authorization-system.md).
+The principle it rests on:
+
+> The vector database is an optimised search index. It is not the source of
+> truth for identity, authorization, or document governance.
+
+Documents store what they are, never who can read them. Owning teams are stored
+as stable identifiers, never names, so a reorganisation does not require
+reindexing. User attributes arrive in the token at query time and are never
+stored, so that side cannot go stale.
+
+Longer write-up:
+https://rahulch-unix.medium.com/i-thought-permission-aware-rag-was-the-hard-problem-i-was-wrong-5a009854a4fa
+
 ## Architecture
+
+![Architecture](docs/architecture.svg)
 
 ```
 User
@@ -66,6 +109,8 @@ Two applications, deployed and scaled independently. The API serves queries. The
 ingestion worker consumes documents. Same separation as Part 1 had between
 ingest.py and chatbot.py, grown up.
 
+Full design and build plan: [ARCHITECTURE.md](ARCHITECTURE.md)
+
 ## Key design decisions
 
 ### Bedrock instead of the OpenAI API
@@ -81,20 +126,8 @@ so models can be swapped without touching application code.
 ### Qdrant instead of FAISS
 
 This is not mainly about scale. Qdrant applies metadata filters inside the
-vector search. FAISS does not do this well.
-
-### Pre-filter instead of post-filter
-
-The obvious implementation retrieves the top four chunks and then removes the
-ones the user lacks permission for. This fails in two ways.
-
-A user with narrow access can have all four results filtered away. They get told
-no information exists when plenty does.
-
-Result counts and latency become a side channel. An attacker can infer whether
-restricted documents matching a query exist, even without seeing them.
-
-The filter has to be part of the search, not applied after it.
+vector search. FAISS does not do this well, and the entire authorization design
+depends on that capability.
 
 ### IRSA for every AWS call
 
@@ -105,19 +138,18 @@ flow through IAM roles bound to Kubernetes service accounts.
 
 ```
 production-rag-eks/
-  src/
-    api/          FastAPI, auth and retrieval and generation
-    ingestion/    SQS consumer, parse and chunk and embed
-    common/       ACL model, Qdrant client, LLM client
-  terraform/
-    00-network/   VPC, subnets, endpoints
-    10-eks/       cluster, node groups, Karpenter
-    20-platform/  ALB controller, External Secrets, cert-manager
-    30-data/      S3, SQS, Secrets Manager, IAM roles
-  charts/         Helm charts per component
-  evals/          golden question set and scoring harness
+  phase0-authorization-lab/   standalone lab, runs on Docker alone
+    documents/                synthetic corpus with mixed sensitivity
   docs/
-  docker-compose.yml
+    adr/                      architecture decision records
+    architecture.svg
+  src/
+    api/                      FastAPI, auth and retrieval and generation
+    ingestion/                SQS consumer, parse and chunk and embed
+    common/                   attribute model, Qdrant client, LLM client
+  terraform/                  arrives in Phase 1
+  charts/                     arrives in Phase 2
+  evals/                      arrives in Phase 9
 ```
 
 Directories appear when the phase that needs them lands. No empty scaffolding.
@@ -126,20 +158,23 @@ Directories appear when the phase that needs them lands. No empty scaffolding.
 
 Each phase ends with something you can demonstrate.
 
-| Phase | Scope | Done |
+| Phase | Scope | Status |
 |---|---|---|
-| 0 | ACL model and pre-filtered retrieval, local Qdrant | no |
-| 1 | Terraform: VPC, EKS, Karpenter, ALB controller, ECR | no |
-| 2 | Qdrant StatefulSet, Postgres, Redis on cluster | no |
-| 3 | RAG API containerised, Bedrock via LiteLLM, IRSA | no |
-| 4 | Authentik OIDC, JWT validation, group claims | no |
-| 5 | ACL enforcement end to end, the Part 2 demo | no |
-| 6 | Event driven ingestion, document versioning | no |
-| 7 | Blue green reindex with zero downtime | no |
-| 8 | Observability with OTel, Prometheus, Langfuse | no |
-| 9 | Evaluation harness and cost controls | no |
+| 0 | Attribute model and pre-filtered retrieval, local Qdrant | in progress |
+| 1 | Terraform: VPC, EKS, Karpenter, ALB controller, ECR | not started |
+| 2 | Qdrant StatefulSet, Postgres, Redis on cluster | not started |
+| 3 | RAG API containerised, Bedrock via LiteLLM, IRSA | not started |
+| 4 | Authentik OIDC, JWT validation, group claims | not started |
+| 5 | Access control enforced end to end, the Part 2 demo | not started |
+| 6 | Event driven ingestion, document versioning | not started |
+| 7 | Blue green reindex with zero downtime | not started |
+| 8 | Observability with OTel, Prometheus, Langfuse | not started |
+| 9 | Evaluation harness and cost controls | not started |
 
 Phases 0 to 5 become video Part 2. Phases 6 to 9 become Part 3.
+
+Phase 0 needs nothing but Docker and Python. It exists to prove the hardest
+design decision before any infrastructure exists to complicate debugging.
 
 ## Running costs
 
@@ -159,18 +194,17 @@ the cluster only exists while it is being worked on.
 VPC endpoints for S3, ECR and Bedrock replace per AZ NAT gateways. That is the
 single largest avoidable cost in this stack.
 
-Local development runs against docker-compose. EKS is for integration testing
+Local development runs against docker compose. EKS is for integration testing
 and recording, not for iteration.
 
 ## Prerequisites
 
-An AWS account with Bedrock model access enabled for Claude and Titan embeddings.
+Phase 0 needs only Docker and Python 3.11 or newer.
 
-Terraform 1.6 or newer, kubectl, helm, awscli v2.
+Later phases need an AWS account with Bedrock model access enabled for Claude
+and Titan embeddings, Terraform 1.6 or newer, kubectl, helm, and awscli v2.
 
-Docker and Python 3.11 or newer.
-
-A budget alert. Set it before the first terraform apply.
+Set a budget alert before the first terraform apply.
 
 ## Author
 
