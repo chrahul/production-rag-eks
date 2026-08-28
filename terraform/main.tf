@@ -119,7 +119,8 @@ module "rag_api_irsa" {
   role_name = "${var.cluster_name}-rag-api"
 
   role_policy_arns = {
-    bedrock = aws_iam_policy.bedrock_invoke.arn
+    bedrock   = aws_iam_policy.bedrock_invoke.arn
+    documents = aws_iam_policy.documents_read.arn
   }
 
   oidc_providers = {
@@ -168,6 +169,76 @@ resource "aws_iam_policy" "bedrock_invoke" {
 }
 
 data "aws_caller_identity" "current" {}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Document store
+#
+# Documents are data, not code. They live in S3 and are read at ingestion time,
+# so changing a document does not mean rebuilding a container image.
+#
+# Each document's attributes come from a manifest file in the same bucket. The
+# manifest says what a document is: classification, owning team, customer.
+# It never says who may read it. That distinction is the whole of ADR-001.
+# ─────────────────────────────────────────────────────────────────────────────
+
+resource "aws_s3_bucket" "documents" {
+  bucket        = "${var.cluster_name}-documents-${data.aws_caller_identity.current.account_id}"
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_public_access_block" "documents" {
+  bucket = aws_s3_bucket.documents.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "documents" {
+  bucket = aws_s3_bucket.documents.id
+
+  # Versioning matters here. A document's content and its classification can
+  # both change, and being able to see what a document looked like when it was
+  # ingested is the difference between an audit you can answer and one you
+  # cannot.
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "documents" {
+  bucket = aws_s3_bucket.documents.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_iam_policy" "documents_read" {
+  name        = "${var.cluster_name}-documents-read"
+  description = "Read documents and the manifest from the corpus bucket"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ListBucket"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = [aws_s3_bucket.documents.arn]
+      },
+      {
+        Sid      = "ReadObjects"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = ["${aws_s3_bucket.documents.arn}/*"]
+      }
+    ]
+  })
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Container registry

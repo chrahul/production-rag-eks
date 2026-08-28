@@ -1,0 +1,63 @@
+# Document manifest
+#
+# This file says what each document IS. It never says who may read it.
+#
+# That distinction is the entire point. A list of people goes stale the day
+# somebody changes teams. A classification is a property of the document and
+# rarely changes. See ADR-001.
+#
+# Attributes:
+#
+#   classification  public | internal | confidential | restricted
+#   owning_team     stable identifier, never a display name. When the Security
+#                   team is renamed to Cyber Defense, nothing here changes.
+#   customer        stable identifier, for documents scoped to one account
+#   region          where the document originated
+#
+# A document not listed here is not ingested. Failing closed is deliberate:
+# an unlisted document has no classification, and defaulting an unclassified
+# document to public is how leaks happen.
+
+documents:
+  - key: documents/01_public_aws_well_architected_summary.md
+    title: AWS Well-Architected Summary, Reliability and Operations
+    doc_id: doc-aws-wa-summary
+    classification: public
+    owning_team: team-architecture
+    region: global
+
+  - key: documents/02_platform_runbook.md
+    title: Platform Runbook, Kubernetes Node Replacement
+    doc_id: doc-platform-node-replacement
+    classification: internal
+    owning_team: team-platform
+    region: india
+
+  - key: documents/03_security_incident_postmortem.md
+    title: Security Incident Postmortem, Temporary Credential Exposure
+    doc_id: doc-sec-incident-credential-exposure
+    classification: restricted
+    owning_team: team-security
+    region: india
+
+  - key: documents/04_customer_architecture_review.md
+    title: Customer Architecture Review, Project Apollo
+    doc_id: doc-apollo-architecture-review
+    classification: confidential
+    owning_team: team-architecture
+    customer: cust-apollo
+    region: india
+
+  - key: documents/05_sre_incident_runbook.md
+    title: SRE Runbook, Production API Latency
+    doc_id: doc-sre-api-latency
+    classification: public
+    owning_team: team-sre
+    region: global
+
+  - key: documents/06_security_architecture_standard.md
+    title: Internal Security Architecture Standard, Data Handling
+    doc_id: doc-sec-data-handling-standard
+    classification: confidential
+    owning_team: team-security
+    region: global
