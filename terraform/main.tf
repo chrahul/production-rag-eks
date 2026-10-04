@@ -76,7 +76,8 @@ module "eks" {
   eks_managed_node_groups = {
     default = {
       instance_types = [var.instance_type]
-      min_size       = var.node_count
+      ami_type       = "AL2023_x86_64_STANDARD"
+      min_size      = var.node_count
       max_size       = var.node_count + 1
       desired_size   = var.node_count
 
