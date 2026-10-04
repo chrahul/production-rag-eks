@@ -1,7 +1,7 @@
 # SRE Runbook — Production API Latency
 
 **Document Class:** SRE runbook
-**Classification:** Internal
+**Classification:** Public
 **Department:** SRE
 **Region:** Global
 **Customer:** None
