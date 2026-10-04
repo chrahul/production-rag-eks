@@ -73,7 +73,14 @@ def read_manifest() -> list[dict]:
 
 
 def read_document(key: str) -> str:
-    return s3().get_object(Bucket=BUCKET, Key=key)["Body"].read().decode("utf-8")
+    """Read a document and normalise its line endings.
+
+    A file uploaded from Windows arrives with CRLF line endings. Chunking
+    splits paragraphs on blank lines, so without this every document would
+    become a single chunk.
+    """
+    body = s3().get_object(Bucket=BUCKET, Key=key)["Body"].read().decode("utf-8")
+    return body.replace("\r\n", "\n")
 
 
 def chunk(text: str) -> list[str]:
