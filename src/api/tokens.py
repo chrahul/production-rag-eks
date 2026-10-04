@@ -35,6 +35,12 @@ JWT_AUDIENCE = "rag-api"
 
 TOKEN_TTL_SECONDS = 3600
 
+# Clocks on the issuer and the verifier are never exactly in step. Without a
+# tolerance, a token minted on a clock half a second ahead is rejected as
+# "not yet valid" by a verifier half a second behind. Thirty seconds is a
+# common default and is small next to the token lifetime.
+CLOCK_SKEW_LEEWAY_SECONDS = 30
+
 
 class TokenError(Exception):
     """Raised when a token is missing, malformed, expired or unverifiable."""
@@ -96,6 +102,7 @@ def verify(token: str) -> Claims:
             algorithms=[JWT_ALGORITHM],
             audience=JWT_AUDIENCE,
             issuer=JWT_ISSUER,
+            leeway=CLOCK_SKEW_LEEWAY_SECONDS,
         )
     except jwt.ExpiredSignatureError:
         raise TokenError("token has expired")
