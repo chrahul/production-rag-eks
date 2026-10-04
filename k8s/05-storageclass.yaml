@@ -1,0 +1,25 @@
+# gp3 storage for Qdrant.
+#
+# EKS ships a gp2 StorageClass as the default. gp3 is cheaper per GB and has a
+# baseline of 3000 IOPS regardless of size, which gp2 only reaches at 1 TB.
+#
+# WaitForFirstConsumer delays creating the volume until the pod is scheduled,
+# so the volume lands in the same availability zone as the node. Without it
+# the volume can be created in one zone and the pod in another, and the pod
+# never starts.
+#
+# reclaimPolicy Delete means the EBS volume goes when its claim is deleted.
+# Right for a disposable cluster. Delete the claim before terraform destroy,
+# or the volume outlives the cluster and keeps costing money.
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+allowVolumeExpansion: true

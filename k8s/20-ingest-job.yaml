@@ -1,0 +1,51 @@
+# Ingestion, run once as a Job.
+#
+# This is the first real test of IRSA. The pod has no AWS credentials. It
+# reads the manifest and documents from S3 and calls Bedrock for embeddings,
+# and every one of those calls is authorised by the role on the rag-api
+# service account. If IRSA is broken, this is where it shows.
+#
+# The image and bucket name are substituted at apply time from terraform
+# output. See k8s/README.md.
+#
+# To run it again after changing a document or the manifest, delete the Job
+# and apply it again. Ingestion recreates the collection from scratch.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rag-ingest
+  namespace: rag
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: rag-ingest
+    spec:
+      serviceAccountName: rag-api
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: ingest
+          image: ${RAG_API_IMAGE}
+          command: ["python", "-m", "src.ingestion.ingest"]
+          env:
+            - name: AWS_REGION
+              value: ap-south-1
+            - name: DOCUMENTS_BUCKET
+              value: ${DOCUMENTS_BUCKET}
+            - name: QDRANT_URL
+              value: http://qdrant:6333
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi

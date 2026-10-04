@@ -1,0 +1,86 @@
+# Qdrant as a StatefulSet.
+#
+# A StatefulSet rather than a Deployment because the pod owns a disk. The
+# volume claim template gives the pod its own EBS volume, and when the pod is
+# deleted and recreated it is reattached to the same volume. That is the test
+# that matters: delete the pod, watch it come back, and find the data still
+# there. That is what makes it a database rather than a container.
+#
+# The Service is headless and named qdrant, which is the default QDRANT_URL
+# in src/common/retrieval.py and src/ingestion/ingest.py.
+#
+# Same image version as the Phase 0 lab, so the client in requirements.txt
+# talks to the server it was tested against.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: rag
+  labels:
+    app: qdrant
+spec:
+  clusterIP: None
+  selector:
+    app: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: 6333
+    - name: grpc
+      port: 6334
+      targetPort: 6334
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+  namespace: rag
+spec:
+  serviceName: qdrant
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qdrant
+  template:
+    metadata:
+      labels:
+        app: qdrant
+    spec:
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:v1.12.4
+          ports:
+            - name: http
+              containerPort: 6333
+            - name: grpc
+              containerPort: 6334
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 6333
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 6333
+            initialDelaySeconds: 10
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp3
+        resources:
+          requests:
+            storage: 10Gi

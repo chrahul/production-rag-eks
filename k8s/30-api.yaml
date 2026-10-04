@@ -1,0 +1,92 @@
+# The RAG API.
+#
+# Runs as the rag-api service account, so it reaches Bedrock through IRSA with
+# no credentials in the pod.
+#
+# JWT_SECRET comes from a Kubernetes Secret named rag-jwt, created by hand at
+# deploy time and never written to a file (see k8s/README.md). The reference
+# is not optional: if the Secret is missing the pod does not start, rather
+# than falling back to the development default in src/api/tokens.py.
+#
+# Readiness checks Qdrant, so the Service sends no traffic to a pod that
+# cannot answer. Liveness only checks the process, so a Qdrant outage does not
+# cause Kubernetes to restart healthy API pods in a loop.
+#
+# The image is substituted at apply time from terraform output.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-api
+  namespace: rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-api
+  template:
+    metadata:
+      labels:
+        app: rag-api
+    spec:
+      serviceAccountName: rag-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: api
+          image: ${RAG_API_IMAGE}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: AWS_REGION
+              value: ap-south-1
+            - name: QDRANT_URL
+              value: http://qdrant:6333
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: rag-jwt
+                  key: JWT_SECRET
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-api
+  namespace: rag
+spec:
+  selector:
+    app: rag-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000

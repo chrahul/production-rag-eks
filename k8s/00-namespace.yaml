@@ -1,0 +1,23 @@
+# Namespace and the service account every workload in it runs as.
+#
+# The service account is where IRSA happens. The annotation names an IAM role,
+# and the role's trust policy only accepts tokens for exactly this namespace
+# and this service account (rag:rag-api, see terraform/main.tf). A pod running
+# as any other service account cannot assume it.
+#
+# The role ARN is not written here because it contains the account ID. It is
+# substituted at apply time from `terraform output -raw rag_api_role_arn`.
+# See k8s/README.md.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rag
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rag-api
+  namespace: rag
+  annotations:
+    eks.amazonaws.com/role-arn: ${RAG_API_ROLE_ARN}
